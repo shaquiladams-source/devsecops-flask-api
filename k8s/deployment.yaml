@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-api
+  namespace: demo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: flask-api
+  template:
+    metadata:
+      labels:
+        app: flask-api
+    spec:
+      serviceAccountName: flask-sa
+      containers:
+      - name: flask-api
+        image: 339518257692.dkr.ecr.us-east-1.amazonaws.com/demo-flask:latest
+        ports:
+        - containerPort: 8080   # changed here
