@@ -1,0 +1,59 @@
+name: CI/CD to EKS
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install bandit pip-audit checkov trivy
+
+      - name: Run security scans
+        run: |
+          bandit -r app || true
+          pip-audit || true
+          checkov -d . || true
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::339518257692:role/gha-ci-cd-role
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, Scan, and Push Docker image
+        env:
+          ECR_REGISTRY: 339518257692.dkr.ecr.us-east-1.amazonaws.com
+          ECR_REPOSITORY: demo-flask
+        run: |
+          docker buildx build --platform linux/amd64 -t $ECR_REPOSITORY .
+          trivy image $ECR_REGISTRY/$ECR_REPOSITORY:latest || true
+          docker tag $ECR_REPOSITORY:latest $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Update kubeconfig and deploy
+        run: |
+          aws eks update-kubeconfig --region us-east-1 --name floral-badger-1761181717
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
