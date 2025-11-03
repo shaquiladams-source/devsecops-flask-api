@@ -9,7 +9,7 @@ REGION = os.getenv("AWS_REGION", "us-east-1")
 
 @app.route("/")
 def home():
-    return "Hello from Flask!- now deployed automatically via CI?CD!", 200
+    return "Hello from Flask!- now deployed automatically via CI?CD!!", 200
 
 @app.route("/healthz")
 def health():
