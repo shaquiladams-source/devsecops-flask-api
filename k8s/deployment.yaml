@@ -17,5 +17,24 @@ spec:
       containers:
       - name: flask-api
         image: 339518257692.dkr.ecr.us-east-1.amazonaws.com/demo-flask:latest
+        imagePullPolicy: Always   # ✅ ensures new image is pulled every time tag is reused
         ports:
-        - containerPort: 8080   # changed here
+        - containerPort: 8080
+        env:
+        - name: AWS_REGION
+          value: "us-east-1"
+        - name: SECRET_NAME
+          value: "demo/db_password"
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+
