@@ -1,0 +1,117 @@
+name: CI/CD to EKS
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write      # allow GitHub to issue an OIDC token
+      contents: read       # allow pipeline to read repo contents
+
+    steps:
+      # -------------------------------------------------------
+      # Step 1: Checkout code from your repo
+      # -------------------------------------------------------
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # -------------------------------------------------------
+      # Step 2: Set up Python and environment
+      # -------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      # -------------------------------------------------------
+      # Step 3: Cache pip dependencies (optional optimization)
+      # -------------------------------------------------------
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+
+      # -------------------------------------------------------
+      # Step 4: Install dependencies and security tools
+      # -------------------------------------------------------
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install bandit pip-audit checkov
+
+      # -------------------------------------------------------
+      # 🔹 Step 5: Add version info for the deployed image
+      # -------------------------------------------------------
+      - name: Set version env var
+        run: echo "GIT_SHA=${GITHUB_SHA}" >> $GITHUB_ENV
+      # This writes the current commit SHA into the environment.
+      # Flask will read this later if you expose it through /version.
+
+      # -------------------------------------------------------
+      # Step 6: Install Trivy (image vulnerability scanner)
+      # -------------------------------------------------------
+      - name: Install Trivy
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update -y
+          sudo apt-get install -y trivy
+
+      # -------------------------------------------------------
+      # Step 7: Run security scans (SAST, deps, IaC)
+      # -------------------------------------------------------
+      - name: Run security scans
+        run: |
+          bandit -r app || true
+          pip-audit || true
+          checkov -d . || true
+
+      # -------------------------------------------------------
+      # Step 8: Configure AWS Credentials (OIDC role assumption)
+      # -------------------------------------------------------
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::339518257692:role/gha-ci-cd-role
+          aws-region: us-east-1
+
+      # -------------------------------------------------------
+      # Step 9: Login to Amazon ECR
+      # -------------------------------------------------------
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # -------------------------------------------------------
+      # Step 10: Build, scan, and push Docker image
+      # -------------------------------------------------------
+      - name: Build, Scan, and Push Docker image
+        env:
+          ECR_REGISTRY: 339518257692.dkr.ecr.us-east-1.amazonaws.com
+          ECR_REPOSITORY: demo-flask
+        run: |
+          docker buildx build --platform linux/amd64 -t $ECR_REPOSITORY .
+          trivy image $ECR_REGISTRY/$ECR_REPOSITORY:latest || true
+          docker tag $ECR_REPOSITORY:latest $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      # -------------------------------------------------------
+      # Step 11: Deploy to EKS and restart rollout
+      # -------------------------------------------------------
+      - name: Update kubeconfig and deploy
+        run: |
+          aws eks update-kubeconfig --region us-east-1 --name floral-badger-1761181717
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+
+      - name: Force rollout to pull latest image
+        run: |
+          kubectl rollout restart deployment flask-api -n demo
+          kubectl rollout status deployment flask-api -n demo --timeout=120s

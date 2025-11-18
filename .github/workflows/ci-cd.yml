@@ -72,3 +72,6 @@ jobs:
         run: |
           kubectl rollout restart deployment flask-api -n demo
           kubectl rollout status deployment flask-api -n demo --timeout=120s
+        #enables me to use curl http://<elb>/version to see which comit is deployed
+      - name: Set version env var
+        run: echo "GIT_SHA=${GITHUB_SHA}" >> $GITHUB_ENV

@@ -1,0 +1,17 @@
+apiVersion: v1
+data:
+  mapRoles: |
+    - rolearn: arn:aws:iam::339518257692:role/eksctl-floral-badger-1761181717-no-NodeInstanceRole-6wtHNilY7R46
+      username: system:node:{{EC2PrivateDNSName}}
+      groups:
+        - system:bootstrappers
+        - system:nodes
+    - rolearn: arn:aws:iam::339518257692:role/gha-ci-cd-role
+      username: gha-ci-cd
+      groups:
+        - system:masters
+kind: ConfigMap
+metadata:
+  name: aws-auth
+  namespace: kube-system
+

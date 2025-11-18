@@ -1,29 +1,22 @@
 from flask import Flask, jsonify
-import boto3, json, os
-from botocore.exceptions import ClientError
+import os
 
 app = Flask(__name__)
 
-SECRET_NAME = os.getenv("SECRET_NAME", "demo/db_password")
-REGION = os.getenv("AWS_REGION", "us-east-1")
-
 @app.route("/")
 def home():
-    return "Hello from Flask!- v2-2", 200
+    return "Hello from Flask (local)!", 200
 
 @app.route("/healthz")
 def health():
     return jsonify({"status": "ok"}), 200
 
-@app.route("/secret")
-def secret():
-    try:
-        sm = boto3.client("secretsmanager", region_name=REGION)
-        resp = sm.get_secret_value(SecretId=SECRET_NAME)
-        secret = json.loads(resp["SecretString"])
-        return jsonify({"password": secret["password"][:2] + "****"}), 200  # mask it for safety
-    except ClientError as e:
-        return jsonify({"error": str(e)}), 500
+@app.route("/version")
+def version():
+    # CI/CD will eventually inject this env var
+    git_sha = os.getenv("GIT_SHA", "local-dev")
+    return jsonify({"version": git_sha}), 200
 
 if __name__ == "__main__":
+    # run on 0.0.0.0 so Docker can reach it later
     app.run(host="0.0.0.0", port=8080)
